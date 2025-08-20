@@ -117,7 +117,6 @@
             font-weight: bold;
             transition: all 0.3s ease;
             text-transform: uppercase;
-            position: relative;
         }
         
         .boton-andre {
@@ -186,11 +185,6 @@
             background: #95a5a6;
             cursor: not-allowed;
             transform: none;
-        }
-        
-        .boton.en-cola {
-            background: #f39c12;
-            animation: pulse-orange 1.5s infinite;
         }
         
         @keyframes pulse-confirm {
@@ -349,6 +343,15 @@
         .botones-asignacion button {
             flex: 1;
         }
+        
+        .error-conexion {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
@@ -356,6 +359,11 @@
     
     <div class="container" id="container">
         <h1>🗂️ Control de Catálogo</h1>
+        
+        <div id="error-conexion" class="error-conexion" style="display: none;">
+            ❌ <strong>Error de conexión:</strong> No se puede conectar con el servidor. 
+            Verifica que el archivo api.php esté en el mismo directorio.
+        </div>
         
         <div id="notificacion-permiso" class="notificacion-permiso" style="display: none;">
             🔔 <strong>Habilita las notificaciones</strong> para recibir alertas importantes del sistema.
@@ -387,7 +395,7 @@
         </div>
         
         <div class="info-usuario">
-            <div id="info-actual">Ningún usuario conectado</div>
+            <div id="info-actual">Cargando estado...</div>
             <div id="timestamp" class="timestamp"></div>
         </div>
         
@@ -438,11 +446,10 @@
         let miUsuario = null;
         let countdownInterval = null;
         let heartbeatInterval = null;
+        let intentosConexion = 0;
         
-        // Inicializar usuario (puede ser seleccionado dinámicamente)
+        // Inicializar usuario
         function seleccionarUsuario() {
-            // Por simplicidad, detectar por última acción
-            // En un entorno real, podrías usar localStorage o login
             return localStorage.getItem('usuarioActivo') || null;
         }
         
@@ -501,7 +508,7 @@
             if (!miUsuario) return;
             
             try {
-                await fetch(API_URL, {
+                const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -511,6 +518,13 @@
                         usuario: miUsuario
                     })
                 });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        intentosConexion = 0; // Reset contador de errores
+                    }
+                }
             } catch (error) {
                 console.error('Error en heartbeat:', error);
             }
@@ -519,14 +533,23 @@
         // Función para actualizar el indicador de conexión
         function actualizarStatusConexion(status) {
             const statusElement = document.getElementById('status-conexion');
+            const errorElement = document.getElementById('error-conexion');
+            
             if (status === 'conectado') {
                 statusElement.textContent = '🟢 Conectado';
                 statusElement.className = 'status-conexion conectado';
+                errorElement.style.display = 'none';
                 conectado = true;
+                intentosConexion = 0;
             } else {
                 statusElement.textContent = '🔴 Desconectado';
                 statusElement.className = 'status-conexion desconectado';
                 conectado = false;
+                intentosConexion++;
+                
+                if (intentosConexion > 2) {
+                    errorElement.style.display = 'block';
+                }
             }
         }
 
@@ -534,6 +557,11 @@
         async function obtenerEstado() {
             try {
                 const response = await fetch(API_URL);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
                 const result = await response.json();
                 
                 if (result.success) {
@@ -554,11 +582,19 @@
             } catch (error) {
                 console.error('Error de conexión:', error);
                 actualizarStatusConexion('desconectado');
+                
+                // Mostrar estado por defecto si hay error
+                if (!estadoActual) {
+                    document.getElementById('info-actual').textContent = 'Error de conexión con el servidor';
+                    document.getElementById('timestamp').textContent = 'Reintentando...';
+                }
             }
         }
         
         // Detectar cambios importantes para notificar
         function detectarCambiosImportantes(estadoAnterior, estadoNuevo) {
+            if (!miUsuario) return;
+            
             // Notificar asignación pendiente
             if (!estadoAnterior.asignacion_pendiente.activa && 
                 estadoNuevo.asignacion_pendiente.activa && 
@@ -619,6 +655,10 @@
                     body: JSON.stringify(data)
                 });
                 
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
                 const result = await response.json();
                 
                 if (result.success) {
@@ -675,7 +715,11 @@
             
             setTimeout(() => {
                 notificacion.style.animation = 'slideUp 0.3s ease';
-                setTimeout(() => document.body.removeChild(notificacion), 300);
+                setTimeout(() => {
+                    if (document.body.contains(notificacion)) {
+                        document.body.removeChild(notificacion);
+                    }
+                }, 300);
             }, 3000);
         }
 
@@ -692,7 +736,7 @@
             const asignacionPanel = document.getElementById('asignacion-panel');
 
             // Manejar asignación pendiente
-            if (estado.asignacion_pendiente.activa) {
+            if (estado.asignacion_pendiente && estado.asignacion_pendiente.activa) {
                 if (estado.asignacion_pendiente.usuario === miUsuario) {
                     asignacionPanel.style.display = 'block';
                     iniciarCountdown(estado.asignacion_pendiente.timestamp_limite);
@@ -807,4 +851,165 @@
             panel.style.display = 'block';
             lista.innerHTML = '';
             
-            cola
+            cola.forEach(solicitud => {
+                const item = document.createElement('div');
+                item.className = 'cola-item';
+                item.innerHTML = `
+                    <span><strong>Pos. ${solicitud.posicion}</strong> - ${getIconoUsuario(solicitud.usuario)} ${solicitud.usuario}</span>
+                    <span>${solicitud.hora}</span>
+                `;
+                lista.appendChild(item);
+            });
+        }
+        
+        // Actualizar panel de visitantes
+        function actualizarPanelVisitantes(visitantes) {
+            const lista = document.getElementById('lista-visitantes');
+            const count = document.getElementById('count-visitantes');
+            
+            count.textContent = visitantes.length;
+            
+            if (visitantes.length === 0) {
+                lista.textContent = 'Ningún usuario online';
+                return;
+            }
+            
+            lista.innerHTML = '';
+            visitantes.forEach(visitante => {
+                const item = document.createElement('span');
+                item.className = 'visitante-item';
+                item.textContent = `${getIconoUsuario(visitante.usuario)} ${visitante.usuario}`;
+                lista.appendChild(item);
+            });
+        }
+        
+        // Iniciar countdown para asignación
+        function iniciarCountdown(timestampLimite) {
+            pararCountdown();
+            
+            const limite = new Date(timestampLimite).getTime();
+            const countdownElement = document.getElementById('countdown');
+            
+            countdownInterval = setInterval(() => {
+                const ahora = new Date().getTime();
+                const tiempoRestante = limite - ahora;
+                
+                if (tiempoRestante <= 0) {
+                    pararCountdown();
+                    countdownElement.textContent = '0';
+                    return;
+                }
+                
+                const segundos = Math.ceil(tiempoRestante / 1000);
+                countdownElement.textContent = segundos;
+            }, 100);
+        }
+        
+        // Parar countdown
+        function pararCountdown() {
+            if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
+            }
+        }
+
+        // Función principal para manejar acciones de usuario
+        function accionUsuario(usuario) {
+            if (!estadoActual) {
+                mostrarNotificacion("Esperando conexión con el servidor...", "warning");
+                return;
+            }
+            
+            establecerUsuario(usuario); // Establecer como usuario activo
+            
+            const estaEnCola = (estadoActual.cola_solicitudes || []).find(s => s.usuario === usuario);
+            
+            if (estadoActual.asignacion_pendiente && estadoActual.asignacion_pendiente.activa) {
+                // Durante asignación pendiente, no permitir acciones
+                mostrarNotificacion("Espera a que se complete la asignación actual", "warning");
+                return;
+            }
+            
+            if (estadoActual.ocupado) {
+                if (estaEnCola) {
+                    // Salir de la cola
+                    enviarAccion('cancelar_solicitud', usuario);
+                } else {
+                    // Entrar en cola
+                    enviarAccion('solicitar_uso', usuario);
+                }
+            } else {
+                // Tomar control directo
+                enviarAccion('tomar_control', usuario);
+            }
+        }
+
+        // Confirmar asignación
+        function confirmarAsignacion() {
+            if (!miUsuario) return;
+            enviarAccion('confirmar_asignacion', miUsuario);
+        }
+        
+        // Rechazar asignación
+        function rechazarAsignacion() {
+            if (!miUsuario) return;
+            enviarAccion('rechazar_asignacion', miUsuario);
+        }
+
+        // Liberar control
+        function liberarControl() {
+            enviarAccion('liberar_control');
+        }
+
+        // Inicializar la aplicación
+        function inicializar() {
+            console.log("Inicializando aplicación...");
+            
+            miUsuario = seleccionarUsuario();
+            verificarPermisoNotificaciones();
+            obtenerEstado();
+            
+            // Configurar intervalos
+            setInterval(obtenerEstado, 2000); // Sincronización cada 2 segundos
+            
+            // Heartbeat cada 30 segundos
+            heartbeatInterval = setInterval(enviarHeartbeat, 30000);
+            
+            // Enviar heartbeat inicial después de 5 segundos
+            setTimeout(enviarHeartbeat, 5000);
+            
+            console.log("Aplicación inicializada");
+        }
+
+        // Agregar estilos para animaciones
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideDown {
+                from { transform: translate(-50%, -100%); opacity: 0; }
+                to { transform: translate(-50%, 0); opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { transform: translate(-50%, 0); opacity: 1; }
+                to { transform: translate(-50%, -100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Limpiar intervalos al cerrar la página
+        window.addEventListener('beforeunload', () => {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            pararCountdown();
+        });
+
+        // Iniciar cuando la página esté cargada
+        document.addEventListener('DOMContentLoaded', inicializar);
+        
+        // También iniciar inmediatamente por si acaso
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', inicializar);
+        } else {
+            inicializar();
+        }
+    </script>
+</body>
+</html>
