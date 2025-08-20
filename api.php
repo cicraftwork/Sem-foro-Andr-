@@ -300,19 +300,27 @@ switch ($metodo) {
                     ]);
                 } else {
                     $posicion = count($estadoActual['cola_solicitudes']) + 1;
+                    $tipoSolicitud = $input['urgente'] ?? false; // Detectar si es solicitud urgente
+                    
                     $estadoActual['cola_solicitudes'][] = [
                         'usuario' => $usuario,
                         'timestamp' => date('Y-m-d H:i:s'),
                         'hora' => date('H:i'),
-                        'posicion' => $posicion
+                        'posicion' => $posicion,
+                        'urgente' => $tipoSolicitud
                     ];
+                    
+                    $mensaje = $tipoSolicitud 
+                        ? $usuario . ' ha hecho una solicitud urgente (posición ' . $posicion . ')'
+                        : $usuario . ' ha entrado en la cola (posición ' . $posicion . ')';
                     
                     if (guardarEstado($estadoFile, $estadoActual)) {
                         echo json_encode([
                             'success' => true,
-                            'message' => $usuario . ' ha entrado en la cola (posición ' . $posicion . ')',
+                            'message' => $mensaje,
                             'data' => $estadoActual,
-                            'notificar_a' => $estadoActual['usuario'] // Para notificar al usuario actual
+                            'notificar_a' => $estadoActual['usuario'], // Para notificar al usuario actual
+                            'tipo_solicitud' => $tipoSolicitud ? 'urgente' : 'normal'
                         ]);
                     } else {
                         echo json_encode([

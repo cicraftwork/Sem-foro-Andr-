@@ -352,6 +352,43 @@
             border-radius: 8px;
             margin: 20px 0;
         }
+        
+        #botones-solicitar h4 {
+            text-align: center;
+            font-size: 1em;
+            margin: 15px 0 10px 0;
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 8px;
+            border: 1px solid #ffc107;
+        }
+        
+        #botones-solicitar .boton {
+            font-size: 0.9em;
+            padding: 12px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #botones-solicitar .boton:not(:disabled):hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+        
+        #botones-solicitar .boton:not(:disabled)::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        #botones-solicitar .boton:not(:disabled):hover::before {
+            left: 100%;
+        }
     </style>
 </head>
 <body>
@@ -424,6 +461,22 @@
             
             <button id="btn-liberar" class="boton boton-liberar" onclick="liberarControl()" style="display: none;">
                 🔓 Liberar Catálogo
+            </button>
+        </div>
+        
+        <div id="botones-solicitar" class="botones" style="display: none; margin-top: 15px;">
+            <h4 style="color: #856404; margin: 15px 0 10px 0;">📢 Solicitar Uso (Notifica al Usuario Actual)</h4>
+            
+            <button id="btn-solicitar-andre" class="boton boton-andre" onclick="solicitarUso('André')" style="font-size: 0.9em;">
+                📨 André Solicitar Uso
+            </button>
+            
+            <button id="btn-solicitar-nicolas" class="boton boton-nicolas" onclick="solicitarUso('Nicolás')" style="font-size: 0.9em;">
+                📨 Nicolás Solicitar Uso
+            </button>
+            
+            <button id="btn-solicitar-invitado" class="boton boton-invitado" onclick="solicitarUso('Invitado')" style="font-size: 0.9em;">
+                📨 Invitado Solicitar Uso
             </button>
         </div>
         
@@ -629,11 +682,19 @@
                 );
                 
                 nuevasSolicitudes.forEach(solicitud => {
-                    mostrarNotificacionSistema(
-                        "📋 Nueva Solicitud",
-                        `${solicitud.usuario} ha entrado en la cola (posición ${solicitud.posicion})`,
-                        "⏰"
-                    );
+                    if (solicitud.urgente) {
+                        mostrarNotificacionSistema(
+                            "🚨 SOLICITUD URGENTE",
+                            `${solicitud.usuario} necesita usar el catálogo URGENTEMENTE (pos. ${solicitud.posicion})`,
+                            "🚨"
+                        );
+                    } else {
+                        mostrarNotificacionSistema(
+                            "📋 Nueva Solicitud",
+                            `${solicitud.usuario} ha entrado en la cola (posición ${solicitud.posicion})`,
+                            "⏰"
+                        );
+                    }
                 });
             }
         }
@@ -734,6 +795,10 @@
             const btnInvitado = document.getElementById('btn-invitado');
             const btnLiberar = document.getElementById('btn-liberar');
             const asignacionPanel = document.getElementById('asignacion-panel');
+            const botonesSolicitar = document.getElementById('botones-solicitar');
+            const btnSolicitarAndre = document.getElementById('btn-solicitar-andre');
+            const btnSolicitarNicolas = document.getElementById('btn-solicitar-nicolas');
+            const btnSolicitarInvitado = document.getElementById('btn-solicitar-invitado');
 
             // Manejar asignación pendiente
             if (estado.asignacion_pendiente && estado.asignacion_pendiente.activa) {
@@ -756,6 +821,7 @@
                 btnNicolas.disabled = true;
                 btnInvitado.disabled = true;
                 btnLiberar.style.display = 'none';
+                botonesSolicitar.style.display = 'none';
                 
             } else if (estado.ocupado) {
                 // Estado OCUPADO
@@ -778,6 +844,12 @@
                 
                 btnLiberar.style.display = 'block';
                 
+                // Mostrar botones de solicitar y actualizarlos
+                botonesSolicitar.style.display = 'block';
+                actualizarBotonSolicitar(btnSolicitarAndre, 'André', estado);
+                actualizarBotonSolicitar(btnSolicitarNicolas, 'Nicolás', estado);
+                actualizarBotonSolicitar(btnSolicitarInvitado, 'Invitado', estado);
+                
             } else {
                 // Estado LIBRE
                 asignacionPanel.style.display = 'none';
@@ -798,11 +870,27 @@
                 actualizarBotonUsuario(btnInvitado, 'Invitado', estado, 'libre');
                 
                 btnLiberar.style.display = 'none';
+                botonesSolicitar.style.display = 'none'; // Ocultar botones de solicitar cuando está libre
             }
             
             // Actualizar paneles
             actualizarPanelCola(estado.cola_solicitudes || []);
             actualizarPanelVisitantes(estado.visitantes_online || []);
+        }
+        
+        // Actualizar botón de solicitar según el estado
+        function actualizarBotonSolicitar(boton, usuario, estado) {
+            const estaEnCola = (estado.cola_solicitudes || []).find(s => s.usuario === usuario);
+            
+            if (estaEnCola) {
+                boton.textContent = `⏳ ${usuario} Ya en Cola (Pos. ${estaEnCola.posicion})`;
+                boton.disabled = true;
+                boton.style.opacity = '0.6';
+            } else {
+                boton.textContent = `📨 ${usuario} Solicitar Uso`;
+                boton.disabled = false;
+                boton.style.opacity = '1';
+            }
         }
         
         // Actualizar botón de usuario según el estado
@@ -854,10 +942,21 @@
             cola.forEach(solicitud => {
                 const item = document.createElement('div');
                 item.className = 'cola-item';
+                
+                const urgenteBadge = solicitud.urgente ? ' <span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.8em;">🚨 URGENTE</span>' : '';
+                
                 item.innerHTML = `
-                    <span><strong>Pos. ${solicitud.posicion}</strong> - ${getIconoUsuario(solicitud.usuario)} ${solicitud.usuario}</span>
+                    <span><strong>Pos. ${solicitud.posicion}</strong> - ${getIconoUsuario(solicitud.usuario)} ${solicitud.usuario}${urgenteBadge}</span>
                     <span>${solicitud.hora}</span>
                 `;
+                
+                // Estilo especial para solicitudes urgentes
+                if (solicitud.urgente) {
+                    item.style.borderLeft = '4px solid #e74c3c';
+                    item.style.background = '#fee';
+                    item.style.animation = 'pulse-orange 1.5s infinite';
+                }
+                
                 lista.appendChild(item);
             });
         }
@@ -913,7 +1012,83 @@
             }
         }
 
-        // Función principal para manejar acciones de usuario
+        // Función específica para solicitar uso (con notificación al usuario actual)
+        function solicitarUso(usuario) {
+            if (!estadoActual) {
+                mostrarNotificacion("Esperando conexión con el servidor...", "warning");
+                return;
+            }
+            
+            if (!estadoActual.ocupado) {
+                mostrarNotificacion("El catálogo está libre, usa el botón 'Tomar Control'", "warning");
+                return;
+            }
+            
+            // Verificar si ya está en cola
+            const estaEnCola = (estadoActual.cola_solicitudes || []).find(s => s.usuario === usuario);
+            if (estaEnCola) {
+                mostrarNotificacion(`${usuario} ya está en la cola de solicitudes`, "warning");
+                return;
+            }
+            
+            establecerUsuario(usuario); // Establecer como usuario activo
+            
+            // Enviar solicitud con notificación especial
+            enviarAccionConNotificacion('solicitar_uso', usuario);
+        }
+        
+        // Función para enviar acción con notificación especial al usuario actual
+        async function enviarAccionConNotificacion(accion, usuario) {
+            const container = document.getElementById('container');
+            container.classList.add('loading');
+            
+            try {
+                const data = { 
+                    accion, 
+                    usuario,
+                    urgente: true // Marcar como solicitud urgente
+                };
+                
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    estadoActual = result.data;
+                    actualizarDisplay(result.data);
+                    mostrarNotificacion(result.message, 'success');
+                    actualizarStatusConexion('conectado');
+                    
+                    // Notificación especial inmediata para solicitudes urgentes
+                    if (result.tipo_solicitud === 'urgente') {
+                        mostrarNotificacionSistema(
+                            "🚨 Solicitud Urgente",
+                            `${usuario} necesita usar el catálogo URGENTEMENTE`,
+                            "🚨"
+                        );
+                    }
+                    
+                } else {
+                    mostrarNotificacion(result.message, 'error');
+                }
+            } catch (error) {
+                console.error('Error al enviar acción:', error);
+                mostrarNotificacion('Error de conexión con el servidor', 'error');
+                actualizarStatusConexion('desconectado');
+            } finally {
+                container.classList.remove('loading');
+            }
+        }
         function accionUsuario(usuario) {
             if (!estadoActual) {
                 mostrarNotificacion("Esperando conexión con el servidor...", "warning");
