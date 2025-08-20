@@ -2,5 +2,12 @@
     "ocupado": false,
     "usuario": null,
     "timestamp": null,
+    "cola_solicitudes": [],
+    "visitantes_online": [],
+    "asignacion_pendiente": {
+        "usuario": null,
+        "timestamp_limite": null,
+        "activa": false
+    },
     "ultima_actualizacion": "2025-08-20 10:19:57"
 }
