@@ -1,0 +1,63 @@
+# Bloquear acceso directo a archivos sensibles
+<Files "estado_catalogo.json">
+    Require all denied
+</Files>
+
+<Files "rate_*.tmp">
+    Require all denied
+</Files>
+
+<FilesMatch "\.(log|bak|tmp)$">
+    Require all denied
+</FilesMatch>
+
+# Headers de seguridad
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# CORS restrictivo para producción (descomenta y cambia dominio)
+# <IfModule mod_headers.c>
+#     SetEnvIf Origin "^https://(www\.)?tudominio\.com$" CORS_ALLOW_ORIGIN=$0
+#     Header always set Access-Control-Allow-Origin "%{CORS_ALLOW_ORIGIN}e" env=CORS_ALLOW_ORIGIN
+# </IfModule>
+
+# Cache básico
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/html "access plus 0 seconds"
+    ExpiresByType application/json "access plus 0 seconds"
+    ExpiresByType text/css "access plus 1 month"
+</IfModule>
+
+# Bloquear directory listing
+Options -Indexes
+
+# Protección contra inyección y bots
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Path traversal
+    RewriteCond %{QUERY_STRING} \.\.\/ [OR]
+    RewriteCond %{QUERY_STRING} \<script [OR]
+    RewriteCond %{QUERY_STRING} javascript: [OR]
+    
+    # SQL injection básica
+    RewriteCond %{QUERY_STRING} union.*select [NC,OR]
+    RewriteCond %{QUERY_STRING} drop.*table [NC]
+    RewriteRule ^(.*)$ - [F,L]
+    
+    # User agents maliciosos
+    RewriteCond %{HTTP_USER_AGENT} ^$ [OR]
+    RewriteCond %{HTTP_USER_AGENT} (bot|crawler|spider) [NC]
+    RewriteCond %{REQUEST_URI} !^/api\.php$
+    RewriteRule ^(.*)$ - [F,L]
+</IfModule>
+
+# Compression
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json
+</IfModule>

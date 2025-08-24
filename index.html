@@ -24,6 +24,16 @@
             text-align: center;
             max-width: 700px;
             width: 100%;
+            transition: all 0.3s ease;
+        }
+        
+        .container.flash {
+            animation: flash-alert 0.5s ease 3;
+        }
+        
+        @keyframes flash-alert {
+            0%, 100% { background: white; }
+            50% { background: #ffe6e6; }
         }
         
         h1 {
@@ -353,41 +363,27 @@
             margin: 20px 0;
         }
         
-        #botones-solicitar h4 {
-            text-align: center;
-            font-size: 1em;
-            margin: 15px 0 10px 0;
-            padding: 10px;
+        .tiempo-uso-info {
             background: #fff3cd;
-            border-radius: 8px;
             border: 1px solid #ffc107;
-        }
-        
-        #botones-solicitar .boton {
+            color: #856404;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 15px 0;
             font-size: 0.9em;
-            padding: 12px 20px;
-            position: relative;
-            overflow: hidden;
         }
         
-        #botones-solicitar .boton:not(:disabled):hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        .tiempo-uso-warning {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            animation: pulse-warning 2s infinite;
         }
         
-        #botones-solicitar .boton:not(:disabled)::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
-            transition: left 0.5s;
-        }
-        
-        #botones-solicitar .boton:not(:disabled):hover::before {
-            left: 100%;
+        @keyframes pulse-warning {
+            0% { opacity: 0.8; }
+            50% { opacity: 1; }
+            100% { opacity: 0.8; }
         }
     </style>
 </head>
@@ -412,7 +408,7 @@
         
         <div id="asignacion-panel" class="asignacion-panel">
             <h3>🎯 ¡Te ha sido asignado el catálogo!</h3>
-            <div>Tienes <span id="countdown" class="countdown">30</span> segundos para confirmar</div>
+            <div>Tienes <span id="countdown" class="countdown">120</span> segundos para confirmar</div>
             <div class="botones-asignacion">
                 <button id="btn-confirmar" class="boton boton-confirmar" onclick="confirmarAsignacion()">
                     ✅ Confirmar y Tomar Control
@@ -434,6 +430,10 @@
         <div class="info-usuario">
             <div id="info-actual">Cargando estado...</div>
             <div id="timestamp" class="timestamp"></div>
+        </div>
+        
+        <div id="tiempo-uso-info" class="tiempo-uso-info" style="display: none;">
+            <div id="tiempo-uso-texto"></div>
         </div>
         
         <div id="cola-panel" class="cola-panel">
@@ -464,28 +464,12 @@
             </button>
         </div>
         
-        <div id="botones-solicitar" class="botones" style="display: none; margin-top: 15px;">
-            <h4 style="color: #856404; margin: 15px 0 10px 0;">📢 Solicitar Uso (Notifica al Usuario Actual)</h4>
-            
-            <button id="btn-solicitar-andre" class="boton boton-andre" onclick="solicitarUso('André')" style="font-size: 0.9em;">
-                📨 André Solicitar Uso
-            </button>
-            
-            <button id="btn-solicitar-nicolas" class="boton boton-nicolas" onclick="solicitarUso('Nicolás')" style="font-size: 0.9em;">
-                📨 Nicolás Solicitar Uso
-            </button>
-            
-            <button id="btn-solicitar-invitado" class="boton boton-invitado" onclick="solicitarUso('Invitado')" style="font-size: 0.9em;">
-                📨 Invitado Solicitar Uso
-            </button>
-        </div>
-        
         <div style="margin-top: 30px; color: #7f8c8d; font-size: 0.9em;">
             💡 <strong>Sistema de Cola Automática:</strong><br>
             • Si está libre: Toma control directamente<br>
             • Si está ocupado: Entra en cola automáticamente<br>
             • Al liberarse: Se asigna automáticamente al siguiente<br>
-            • Tienes 30 segundos para confirmar tu turno
+            • Tienes 2 minutos para confirmar tu turno
         </div>
     </div>
 
@@ -499,7 +483,30 @@
         let miUsuario = null;
         let countdownInterval = null;
         let heartbeatInterval = null;
+        let recordatoriosInterval = null;
         let intentosConexion = 0;
+        let recordatoriosCount = 0;
+        let inicioUsoLocal = null;
+        
+        // Audio para notificaciones críticas
+        function crearAudioAlert() {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+            
+            oscillator.frequency.value = 800;
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.1);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+            
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.5);
+        }
         
         // Inicializar usuario
         function seleccionarUsuario() {
@@ -535,25 +542,138 @@
                 if (permission === "granted") {
                     document.getElementById('notificacion-permiso').style.display = 'none';
                     mostrarNotificacion("¡Notificaciones habilitadas correctamente!", "success");
-                    new Notification("Control de Catálogo", {
-                        body: "¡Notificaciones habilitadas! Recibirás alertas importantes.",
-                        icon: "📚"
-                    });
+                    mostrarNotificacionCritica("Control de Catálogo", "¡Notificaciones habilitadas! Recibirás alertas importantes.");
                 } else {
                     mostrarNotificacion("Notificaciones denegadas. No recibirás alertas.", "warning");
                 }
             });
         }
         
-        // Mostrar notificación del sistema
-        function mostrarNotificacionSistema(titulo, mensaje, icono = "📚") {
+        // Mostrar notificación crítica (persistente con audio y flash)
+        function mostrarNotificacionCritica(titulo, mensaje, icono = "📚") {
+            // Audio alert
+            try {
+                crearAudioAlert();
+            } catch (e) {
+                console.log('Audio blocked or unavailable');
+            }
+            
+            // Visual flash
+            const container = document.getElementById('container');
+            container.classList.add('flash');
+            setTimeout(() => container.classList.remove('flash'), 1500);
+            
+            // Browser notification persistente
             if ("Notification" in window && Notification.permission === "granted") {
                 new Notification(titulo, {
                     body: mensaje,
                     icon: icono,
-                    requireInteraction: true
+                    requireInteraction: true,
+                    tag: 'catalogo-critico'
                 });
             }
+        }
+        
+        // Mostrar notificación normal del sistema
+        function mostrarNotificacionSistema(titulo, mensaje, icono = "📚") {
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(titulo, {
+                    body: mensaje,
+                    icon: icono
+                });
+            }
+        }
+        
+        // Sistema de recordatorios por tiempo de uso
+        function iniciarSistemaRecordatorios() {
+            if (recordatoriosInterval) clearInterval(recordatoriosInterval);
+            recordatoriosCount = 0;
+            inicioUsoLocal = Date.now();
+            
+            recordatoriosInterval = setInterval(() => {
+                if (!estadoActual || !estadoActual.ocupado || estadoActual.usuario !== miUsuario) {
+                    clearInterval(recordatoriosInterval);
+                    return;
+                }
+                
+                const tiempoTranscurrido = (Date.now() - inicioUsoLocal) / (1000 * 60); // minutos
+                
+                if (tiempoTranscurrido >= 30 && recordatoriosCount === 0) {
+                    // Primer recordatorio a los 30 minutos
+                    recordatoriosCount = 1;
+                    mostrarNotificacionCritica(
+                        "⏰ Recordatorio de Uso",
+                        "Llevas 30 minutos usando el catálogo. ¿Sigues necesitándolo?",
+                        "⚠️"
+                    );
+                    mostrarRecordatorioUso(30);
+                    
+                } else if (tiempoTranscurrido >= 60 && recordatoriosCount === 1) {
+                    // Auto-liberación a los 60 minutos
+                    recordatoriosCount = 2;
+                    mostrarNotificacionCritica(
+                        "🔓 Auto-Liberación",
+                        "Has usado el catálogo por 60 minutos. Liberando automáticamente.",
+                        "⏰"
+                    );
+                    setTimeout(() => {
+                        liberarControl();
+                    }, 3000); // Dar tiempo a leer notificación
+                }
+            }, 60000); // Verificar cada minuto
+        }
+        
+        // Mostrar recordatorio visual de uso
+        function mostrarRecordatorioUso(minutos) {
+            const recordatorio = document.createElement('div');
+            recordatorio.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #fff3cd;
+                border: 3px solid #ffc107;
+                border-radius: 15px;
+                padding: 30px;
+                z-index: 10001;
+                text-align: center;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                animation: pulse-notification 2s infinite;
+                max-width: 400px;
+            `;
+            
+            recordatorio.innerHTML = `
+                <h3 style="margin: 0 0 15px 0; color: #856404;">⏰ Recordatorio</h3>
+                <p style="margin: 10px 0; color: #856404;">Has estado usando el catálogo por <strong>${minutos} minutos</strong></p>
+                <p style="margin: 10px 0; color: #856404;">¿Sigues necesitándolo?</p>
+                <button onclick="this.parentElement.remove()" style="
+                    background: #28a745; color: white; border: none; 
+                    padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px;
+                ">✅ Sí, sigo usándolo</button>
+                <button onclick="liberarControl(); this.parentElement.remove();" style="
+                    background: #dc3545; color: white; border: none; 
+                    padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px;
+                ">🔓 Liberar Catálogo</button>
+            `;
+            
+            document.body.appendChild(recordatorio);
+            
+            // Auto-remover después de 30 segundos si no responde
+            setTimeout(() => {
+                if (document.body.contains(recordatorio)) {
+                    recordatorio.remove();
+                }
+            }, 30000);
+        }
+        
+        // Parar sistema de recordatorios
+        function pararSistemaRecordatorios() {
+            if (recordatoriosInterval) {
+                clearInterval(recordatoriosInterval);
+                recordatoriosInterval = null;
+            }
+            recordatoriosCount = 0;
+            inicioUsoLocal = null;
         }
         
         // Enviar heartbeat al servidor
@@ -648,14 +768,14 @@
         function detectarCambiosImportantes(estadoAnterior, estadoNuevo) {
             if (!miUsuario) return;
             
-            // Notificar asignación pendiente
+            // Notificar asignación pendiente con audio y flash
             if (!estadoAnterior.asignacion_pendiente.activa && 
                 estadoNuevo.asignacion_pendiente.activa && 
                 estadoNuevo.asignacion_pendiente.usuario === miUsuario) {
                 
-                mostrarNotificacionSistema(
+                mostrarNotificacionCritica(
                     "🎯 ¡Tu Turno!",
-                    "Te ha sido asignado el catálogo. Tienes 30 segundos para confirmar.",
+                    "Te ha sido asignado el catálogo. Tienes 2 minutos para confirmar.",
                     "⏰"
                 );
             }
@@ -672,7 +792,7 @@
                 }
             }
             
-            // Notificar nuevas solicitudes si soy el usuario actual
+            // Notificar nuevas entradas en cola si soy el usuario actual
             if (estadoNuevo.ocupado && 
                 estadoNuevo.usuario === miUsuario &&
                 estadoNuevo.cola_solicitudes.length > estadoAnterior.cola_solicitudes.length) {
@@ -682,20 +802,23 @@
                 );
                 
                 nuevasSolicitudes.forEach(solicitud => {
-                    if (solicitud.urgente) {
-                        mostrarNotificacionSistema(
-                            "🚨 SOLICITUD URGENTE",
-                            `${solicitud.usuario} necesita usar el catálogo URGENTEMENTE (pos. ${solicitud.posicion})`,
-                            "🚨"
-                        );
-                    } else {
-                        mostrarNotificacionSistema(
-                            "📋 Nueva Solicitud",
-                            `${solicitud.usuario} ha entrado en la cola (posición ${solicitud.posicion})`,
-                            "⏰"
-                        );
-                    }
+                    mostrarNotificacionCritica(
+                        "📋 Nuevo en Cola",
+                        `${solicitud.usuario} ha entrado en la cola (posición ${solicitud.posicion})`,
+                        "⏰"
+                    );
                 });
+            }
+            
+            // Detectar cuando empiezo a usar el catálogo para iniciar recordatorios
+            if (!estadoAnterior.ocupado && estadoNuevo.ocupado && estadoNuevo.usuario === miUsuario) {
+                iniciarSistemaRecordatorios();
+            }
+            
+            // Detectar cuando dejo de usar el catálogo para parar recordatorios
+            if (estadoAnterior.ocupado && estadoAnterior.usuario === miUsuario && 
+                (!estadoNuevo.ocupado || estadoNuevo.usuario !== miUsuario)) {
+                pararSistemaRecordatorios();
             }
         }
 
@@ -733,6 +856,15 @@
                         establecerUsuario(usuario);
                     }
                     
+                    // Mostrar notificación especial para entradas en cola
+                    if (result.entrada_cola) {
+                        mostrarNotificacionCritica(
+                            "📋 Entrada en Cola",
+                            result.message,
+                            "⏰"
+                        );
+                    }
+                    
                 } else {
                     mostrarNotificacion(result.message, 'error');
                 }
@@ -747,12 +879,7 @@
 
         // Función para mostrar notificaciones web (fallback)
         function mostrarNotificacion(mensaje, tipo) {
-            // Mostrar también notificación del sistema para eventos importantes
-            if (tipo === 'success') {
-                mostrarNotificacionSistema("Control de Catálogo", mensaje);
-            }
-            
-            // Crear notificación visual en la página como fallback
+            // Crear notificación visual en la página
             const notificacion = document.createElement('div');
             notificacion.style.cssText = `
                 position: fixed;
@@ -795,10 +922,7 @@
             const btnInvitado = document.getElementById('btn-invitado');
             const btnLiberar = document.getElementById('btn-liberar');
             const asignacionPanel = document.getElementById('asignacion-panel');
-            const botonesSolicitar = document.getElementById('botones-solicitar');
-            const btnSolicitarAndre = document.getElementById('btn-solicitar-andre');
-            const btnSolicitarNicolas = document.getElementById('btn-solicitar-nicolas');
-            const btnSolicitarInvitado = document.getElementById('btn-solicitar-invitado');
+            const tiempoUsoInfo = document.getElementById('tiempo-uso-info');
 
             // Manejar asignación pendiente
             if (estado.asignacion_pendiente && estado.asignacion_pendiente.activa) {
@@ -821,7 +945,7 @@
                 btnNicolas.disabled = true;
                 btnInvitado.disabled = true;
                 btnLiberar.style.display = 'none';
-                botonesSolicitar.style.display = 'none';
+                tiempoUsoInfo.style.display = 'none';
                 
             } else if (estado.ocupado) {
                 // Estado OCUPADO
@@ -837,18 +961,17 @@
                 infoActual.textContent = `En uso por: ${estado.usuario}`;
                 timestamp.textContent = `Desde: ${estado.timestamp}`;
                 
+                // Mostrar información de tiempo de uso
+                if (estado.tiempo_uso_minutos !== undefined) {
+                    actualizarTiempoUso(estado.tiempo_uso_minutos);
+                }
+                
                 // Cambiar texto de botones según si están en cola
-                actualizarBotonUsuario(btnAndre, 'André', estado, 'ocupado');
-                actualizarBotonUsuario(btnNicolas, 'Nicolás', estado, 'ocupado');
-                actualizarBotonUsuario(btnInvitado, 'Invitado', estado, 'ocupado');
+                actualizarBotonUsuario(btnAndre, 'André', estado);
+                actualizarBotonUsuario(btnNicolas, 'Nicolás', estado);
+                actualizarBotonUsuario(btnInvitado, 'Invitado', estado);
                 
                 btnLiberar.style.display = 'block';
-                
-                // Mostrar botones de solicitar y actualizarlos
-                botonesSolicitar.style.display = 'block';
-                actualizarBotonSolicitar(btnSolicitarAndre, 'André', estado);
-                actualizarBotonSolicitar(btnSolicitarNicolas, 'Nicolás', estado);
-                actualizarBotonSolicitar(btnSolicitarInvitado, 'Invitado', estado);
                 
             } else {
                 // Estado LIBRE
@@ -865,12 +988,20 @@
                 timestamp.textContent = 'Disponible para usar';
                 
                 // Cambiar texto de botones a "tomar control"
-                actualizarBotonUsuario(btnAndre, 'André', estado, 'libre');
-                actualizarBotonUsuario(btnNicolas, 'Nicolás', estado, 'libre');
-                actualizarBotonUsuario(btnInvitado, 'Invitado', estado, 'libre');
+                btnAndre.textContent = `👨‍💼 André Toma Control`;
+                btnAndre.disabled = false;
+                btnAndre.className = `boton boton-andre`;
+                
+                btnNicolas.textContent = `👨‍💻 Nicolás Toma Control`;
+                btnNicolas.disabled = false;
+                btnNicolas.className = `boton boton-nicolas`;
+                
+                btnInvitado.textContent = `👤 Invitado Toma Control`;
+                btnInvitado.disabled = false;
+                btnInvitado.className = `boton boton-invitado`;
                 
                 btnLiberar.style.display = 'none';
-                botonesSolicitar.style.display = 'none'; // Ocultar botones de solicitar cuando está libre
+                tiempoUsoInfo.style.display = 'none';
             }
             
             // Actualizar paneles
@@ -878,41 +1009,38 @@
             actualizarPanelVisitantes(estado.visitantes_online || []);
         }
         
-        // Actualizar botón de solicitar según el estado
-        function actualizarBotonSolicitar(boton, usuario, estado) {
-            const estaEnCola = (estado.cola_solicitudes || []).find(s => s.usuario === usuario);
+        // Actualizar información de tiempo de uso
+        function actualizarTiempoUso(minutos) {
+            const tiempoUsoInfo = document.getElementById('tiempo-uso-info');
+            const tiempoUsoTexto = document.getElementById('tiempo-uso-texto');
             
-            if (estaEnCola) {
-                boton.textContent = `⏳ ${usuario} Ya en Cola (Pos. ${estaEnCola.posicion})`;
-                boton.disabled = true;
-                boton.style.opacity = '0.6';
+            if (minutos > 0) {
+                tiempoUsoInfo.style.display = 'block';
+                
+                if (minutos >= 30) {
+                    tiempoUsoInfo.className = 'tiempo-uso-info tiempo-uso-warning';
+                    tiempoUsoTexto.textContent = `⚠️ Tiempo de uso: ${minutos} minutos. Considera liberar si no necesitas el catálogo.`;
+                } else {
+                    tiempoUsoInfo.className = 'tiempo-uso-info';
+                    tiempoUsoTexto.textContent = `⏱️ Tiempo de uso: ${minutos} minutos`;
+                }
             } else {
-                boton.textContent = `📨 ${usuario} Solicitar Uso`;
-                boton.disabled = false;
-                boton.style.opacity = '1';
+                tiempoUsoInfo.style.display = 'none';
             }
         }
         
         // Actualizar botón de usuario según el estado
-        function actualizarBotonUsuario(boton, usuario, estado, modo) {
+        function actualizarBotonUsuario(boton, usuario, estado) {
             const estaEnCola = (estado.cola_solicitudes || []).find(s => s.usuario === usuario);
             
-            if (modo === 'libre') {
-                boton.textContent = `${getIconoUsuario(usuario)} ${usuario} Toma Control`;
-                boton.disabled = false;
-                boton.className = `boton boton-${usuario.toLowerCase()}`;
-            } else if (modo === 'ocupado') {
-                if (estaEnCola) {
-                    boton.textContent = `⏳ ${usuario} en Cola (Pos. ${estaEnCola.posicion})`;
-                    boton.className = `boton boton-cancelar`;
-                } else {
-                    boton.textContent = `📝 ${usuario} Entrar en Cola`;
-                    boton.className = `boton boton-${usuario.toLowerCase()}`;
-                }
+            if (estaEnCola) {
+                boton.textContent = `⏳ ${usuario} Salir de Cola (Pos. ${estaEnCola.posicion})`;
+                boton.className = `boton boton-cancelar`;
                 boton.disabled = false;
             } else {
-                // Durante asignación, deshabilitar
-                boton.disabled = true;
+                boton.textContent = `📝 ${usuario} Entrar en Cola`;
+                boton.className = `boton boton-${usuario.toLowerCase()}`;
+                boton.disabled = false;
             }
         }
         
@@ -943,19 +1071,10 @@
                 const item = document.createElement('div');
                 item.className = 'cola-item';
                 
-                const urgenteBadge = solicitud.urgente ? ' <span style="background: #e74c3c; color: white; padding: 2px 6px; border-radius: 10px; font-size: 0.8em;">🚨 URGENTE</span>' : '';
-                
                 item.innerHTML = `
-                    <span><strong>Pos. ${solicitud.posicion}</strong> - ${getIconoUsuario(solicitud.usuario)} ${solicitud.usuario}${urgenteBadge}</span>
+                    <span><strong>Pos. ${solicitud.posicion}</strong> - ${getIconoUsuario(solicitud.usuario)} ${solicitud.usuario}</span>
                     <span>${solicitud.hora}</span>
                 `;
-                
-                // Estilo especial para solicitudes urgentes
-                if (solicitud.urgente) {
-                    item.style.borderLeft = '4px solid #e74c3c';
-                    item.style.background = '#fee';
-                    item.style.animation = 'pulse-orange 1.5s infinite';
-                }
                 
                 lista.appendChild(item);
             });
@@ -982,7 +1101,7 @@
             });
         }
         
-        // Iniciar countdown para asignación
+        // Iniciar countdown para asignación (2 minutos = 120 segundos)
         function iniciarCountdown(timestampLimite) {
             pararCountdown();
             
@@ -1012,83 +1131,7 @@
             }
         }
 
-        // Función específica para solicitar uso (con notificación al usuario actual)
-        function solicitarUso(usuario) {
-            if (!estadoActual) {
-                mostrarNotificacion("Esperando conexión con el servidor...", "warning");
-                return;
-            }
-            
-            if (!estadoActual.ocupado) {
-                mostrarNotificacion("El catálogo está libre, usa el botón 'Tomar Control'", "warning");
-                return;
-            }
-            
-            // Verificar si ya está en cola
-            const estaEnCola = (estadoActual.cola_solicitudes || []).find(s => s.usuario === usuario);
-            if (estaEnCola) {
-                mostrarNotificacion(`${usuario} ya está en la cola de solicitudes`, "warning");
-                return;
-            }
-            
-            establecerUsuario(usuario); // Establecer como usuario activo
-            
-            // Enviar solicitud con notificación especial
-            enviarAccionConNotificacion('solicitar_uso', usuario);
-        }
-        
-        // Función para enviar acción con notificación especial al usuario actual
-        async function enviarAccionConNotificacion(accion, usuario) {
-            const container = document.getElementById('container');
-            container.classList.add('loading');
-            
-            try {
-                const data = { 
-                    accion, 
-                    usuario,
-                    urgente: true // Marcar como solicitud urgente
-                };
-                
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    estadoActual = result.data;
-                    actualizarDisplay(result.data);
-                    mostrarNotificacion(result.message, 'success');
-                    actualizarStatusConexion('conectado');
-                    
-                    // Notificación especial inmediata para solicitudes urgentes
-                    if (result.tipo_solicitud === 'urgente') {
-                        mostrarNotificacionSistema(
-                            "🚨 Solicitud Urgente",
-                            `${usuario} necesita usar el catálogo URGENTEMENTE`,
-                            "🚨"
-                        );
-                    }
-                    
-                } else {
-                    mostrarNotificacion(result.message, 'error');
-                }
-            } catch (error) {
-                console.error('Error al enviar acción:', error);
-                mostrarNotificacion('Error de conexión con el servidor', 'error');
-                actualizarStatusConexion('desconectado');
-            } finally {
-                container.classList.remove('loading');
-            }
-        }
+        // Función principal para manejar acciones de usuario
         function accionUsuario(usuario) {
             if (!estadoActual) {
                 mostrarNotificacion("Esperando conexión con el servidor...", "warning");
@@ -1110,8 +1153,8 @@
                     // Salir de la cola
                     enviarAccion('cancelar_solicitud', usuario);
                 } else {
-                    // Entrar en cola
-                    enviarAccion('solicitar_uso', usuario);
+                    // Entrar en cola automáticamente
+                    enviarAccion('tomar_control', usuario); // La API maneja la lógica de cola
                 }
             } else {
                 // Tomar control directo
@@ -1133,6 +1176,7 @@
 
         // Liberar control
         function liberarControl() {
+            pararSistemaRecordatorios(); // Parar recordatorios al liberar
             enviarAccion('liberar_control');
         }
 
@@ -1174,6 +1218,7 @@
         window.addEventListener('beforeunload', () => {
             if (heartbeatInterval) clearInterval(heartbeatInterval);
             pararCountdown();
+            pararSistemaRecordatorios();
         });
 
         // Iniciar cuando la página esté cargada
